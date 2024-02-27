@@ -1,0 +1,12 @@
+.env
+.Rhistory
+__pycache__
+writeup
+.archive
+figures-tables
+data/bbc_data
+hrerun.ipynb
+data/raw_data/silicon_gpt35_requests.jsonl
+data/raw_data/silicon_gpt35_requests_results.jsonl
+data/raw_data/silicon_gpt4_requests.jsonl
+data/raw_data/silicon_gpt4_requests_results.jsonl

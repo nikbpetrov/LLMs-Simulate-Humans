@@ -1,0 +1,642 @@
+---
+title: "XXXXXXXX"
+author: "Nikolay Petrov"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: true
+    code_folding: hide
+---
+
+# SETUP
+
+The code here is an extension of the Python codebook (`codebook.ipynb`) so to see how the data that used here has come to be, see that notebook.
+
+```{r include=FALSE}
+knitr::opts_chunk$set(eval=TRUE, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE, fig.width=12, fig.height=9)
+```
+
+```{r}
+show_data_markdown <- function(data, group_var=NULL, rows_by_group=Inf, row_limit=Inf) {
+  if (!is.null(group_var)) {
+    data_to_display <- data %>%
+      group_by(.data[[group_var]])
+  } else {
+    data_to_display <- data
+  }
+  data_to_display <- data_to_display %>%
+    filter(row_number()<=rows_by_group) %>%
+    ungroup() %>%
+    filter(row_number()<=row_limit)
+  
+  if (isTRUE(getOption('knitr.in.progress'))) {
+    return(knitr::kable(data_to_display))
+  } else {
+    return(data_to_display)
+  }
+}
+```
+
+Packages loading and setup:
+
+```{r warning=FALSE, message=FALSE}
+options(dplyr.summarise.inform = FALSE)
+
+packages <- c("ggplot2",
+              "ggpubr",
+              "tidyverse",
+              "lavaan",
+              "semPlot",
+              "psych",
+              "GPArotation",
+              "EFA.dimensions",
+              "lavaan",
+              "semPlot",
+              "semTools",
+              "data.table"
+              )
+
+if (!all(packages %in% (.packages()))) {
+  #using invisible to hide output
+  invisible(lapply(packages,
+         FUN = function(x) {
+           if (!require(x, character.only = TRUE)) {
+             install.packages(x, dependencies = TRUE)
+           }
+           library(x, character.only = TRUE)
+         }))
+}
+
+theme_set(theme_classic())
+theme_update(plot.title = element_text(size=25, hjust=0.5),
+             plot.subtitle = element_text(size=18, hjust=0.5, face="italic"),
+            axis.title = element_text(size=15),
+            axis.text = element_text(size=10),
+            legend.title = element_text(size=20),
+            legend.text = element_text(size=15),
+            legend.position = "bottom",
+            legend.justification="right")
+```
+
+```{r}
+# Custom formatting function for APA style
+format_apa <- function(x, is_p_val=F) {
+  rounding_digits <- 2
+  
+  if (is_p_val) {
+    if (x<0.001) {
+      return ("< .001")
+    }
+    rounding_digits <- 3
+  }
+  
+  sign <- ifelse(x < 0, "-", "")
+  formatted <- formatC(abs(x), format = "f", digits = rounding_digits)
+  formatted <- gsub("^0", "", formatted) # Remove leading zero
+  formatted <- paste0(sign, formatted)
+  
+  if (is_p_val) {
+    return(paste0("= ", formatted))
+  }
+  return(formatted)
+}
+
+# Custom label mappings
+model_labels <- c("serapiogarcia" = "Serapio-García et al. (2023)", "bbc" = "BBC Human data",
+                  "generic_gpt35" = "Generic personas\nGPT3.5", "generic_gpt4" = "Generic personas\nGPT4", 
+                  "silicon_gpt35" = "Silicon personas\nGPT3.5", "silicon_gpt4" = "Silicon personas\nGPT4")
+model_labels2 <- c("gpt35" = "GPT3.5", "gpt4" = "GPT4")
+
+scale_labels <- c("BFI" = "BFI", "BPAQ" = "BPAQ", "SSCS" = "SSCS", "PANAS" = "PANAS")
+```
+
+# Figure: internal consistency
+
+```{r fig.width=16}
+data <- read_csv(file.path("data", "data_for_R", "combined_cronbach_alpha_df.csv")) %>%
+  pivot_longer(cols=-c("scale", "dimension"),
+               names_to="model",
+               values_to="alpha") %>%
+  mutate(model = gsub("_alpha", "", model),
+         scale = recode(scale, !!!scale_labels),
+         model = recode(model, !!!model_labels),
+         model = factor(model),
+         # model = fct_relevel(model, levels(model)[3], after=1)
+         )
+
+p_bfi <- data %>%
+  filter(scale=="BFI") %>%
+  ggplot(aes(x = dimension, y = alpha)) +
+    geom_col(position = position_dodge()) +
+    geom_hline(yintercept=0.7) +
+    geom_text(aes(label = format_apa(alpha)), 
+              position = position_dodge(width = 0.9), 
+              vjust = -0.3, 
+              color = "black", 
+              size = 3.5, 
+              check_overlap = TRUE) +
+    facet_wrap(~scale+model, scales = "free_x", nrow=4, ncol=1) +
+    scale_y_continuous(limits=c(0, 1.03)) +
+    theme(strip.text = element_blank(),
+          axis.text.x = element_text(angle=45, hjust=1))
+
+p_others <- data %>%
+  filter(scale!="BFI") %>%
+  ggplot(aes(x = dimension, y = alpha)) +
+    geom_col(position = position_dodge()) +
+    geom_hline(yintercept=0.7) +
+    geom_text(aes(label = format_apa(alpha)), 
+              position = position_dodge(width = 0.9), 
+              vjust = -0.3, 
+              color = "black", 
+              size = 3.5, 
+              check_overlap = TRUE) +
+    facet_wrap(~model+scale, scales = "free_x", nrow=4) +
+    scale_y_continuous(limits=c(0, 1.03)) +
+    theme(strip.text = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank(),
+          axis.line.y = element_blank())
+
+ggarrange(p_bfi, p_others,
+          labels = c("", ""),
+          # nrow=1, ncol=2,
+          widths=c(0.25, 0.75)
+          # common.legend=T,
+          # legend="bottom"
+          )
+```
+
+```{r fig.width=24}
+p <- data %>%
+  ggplot(aes(x = dimension, y = alpha)) +
+    geom_col(position = position_dodge()) +
+    geom_hline(yintercept=0.7) +
+    geom_text(aes(label = format_apa(alpha)), 
+              position = position_dodge(width = 0.9), 
+              vjust = -0.3, 
+              color = "black", 
+              size = 3.5, 
+              check_overlap = TRUE) +
+    # facet_wrap(~scale+model, scales = "free_x") +
+    scale_y_continuous(limits=c(0, 1.03))
+
+p + facet_grid(rows = vars(model), cols = vars(scale), scales = "free_x") +
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold"),
+    strip.text.y = element_text(face = "bold", angle = 0)
+  ) +
+  labs(x="Dimension", y="Cronbach's alpha")
+```
+
+# Figure: Criterion Validity
+
+```{r fig.width=12}
+data <- read_csv(file.path("data", "data_for_R", "combined_validity_df.csv")) %>%
+  pivot_longer(cols=-c("var1", "var2"),
+               names_to="model",
+               values_to="r") %>%
+  rowwise() %>%
+  mutate(var1 = if_else(startsWith(var1, "BFI_"), strsplit(var1, "_")[[1]][2], var1)) %>%
+  ungroup() %>%
+  mutate(model = gsub("_r", "", model),
+         model = recode(model, !!!model_labels),
+         model = factor(model),
+         model = fct_relevel(model, levels(model)[3], after=0)
+         )
+
+data
+```
+
+```{r fig.width=20}
+p <- ggplot(data, aes(x = var2, y = r)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(r)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, 
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE) #+
+    # facet_wrap(~var1, scales = "free_x")
+
+p + facet_grid(rows = vars(model), cols = vars(var1), scales = "free_x") +
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold"),
+    strip.text.y = element_text(face = "bold", angle = 0),
+    axis.title.x = element_blank()
+  ) + 
+  labs(y="Correlation (Pearson's r)")
+```
+
+# Figure: Intercorrelations
+
+```{r}
+# Read the data
+data <- read.csv(file.path("data", "data_for_R", "intercorrs.csv")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         # model = fct_relevel(model, levels(model)[3], after=1)
+         )
+
+data
+```
+
+```{r fig.width=9, fig.height=12}
+ggplot(data, aes(x = var1, y = r, fill=model)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(r)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, 
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE) +
+    facet_wrap(~var2, ncol=1)
+```
+
+```{r fig.width=30}
+p <- ggplot(data, aes(x = var1, y = r)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(r)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, 
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE) #+
+    # facet_wrap(~var2, ncol=1)
+
+p + facet_grid(rows = vars(model), cols = vars(var2), scales = "free_x") +
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold"),
+    strip.text.y = element_text(face = "bold", angle = 0),
+    axis.title.x = element_blank()
+  ) + 
+  labs(y="Correlation (Pearson's r)")
+```
+
+# Figure: Item-level frequencies
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "combined_bfi_item_frequencies.csv")) %>%
+  mutate(model = gsub("_relative_frequency", "", model),
+         model = recode(model, !!!model_labels),
+         model = factor(model),
+         # model = fct_relevel(model, levels(model)[3], after=1)
+         )
+data
+```
+
+```{r fig.width=12}
+p <- ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(relative_frequency)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, 
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE)
+
+p + facet_grid(rows = vars(model), cols = vars(dimension), scales = "free_x") +
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold"),
+    strip.text.y = element_text(face = "bold", angle = 0)
+  ) + 
+  labs(y="Frequency", x="Item-level response") +
+  scale_y_continuous(limits=c(0, 0.8))
+```
+
+```{r fig.width=12, fig.height=9}
+ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
+    geom_col(position = position_dodge()) +
+    # geom_text(aes(label = format_apa(r)), 
+    #             position = position_dodge(width = 0.9), 
+    #             vjust = -0.3, 
+    #             color = "black", 
+    #             size = 3.5, 
+    #             check_overlap = TRUE) +
+    facet_wrap(~dimension+model)
+```
+
+# EFA
+
+```{r}
+process_data <- function(filepath) {
+    # Read the CSV file from the given file path
+    data <- read_csv(filepath)
+
+    # Apply transformations
+    data <- data %>%
+        mutate(uid = as.factor(uid),
+               dimension = substr(dimension, 1, 1)) %>%
+        rename("response" = "response_reversed") %>%
+        arrange(dimension, item_index) %>%
+        pivot_wider(id_cols = uid,
+                    names_from = c("dimension", "item_index"),
+                    names_sep = "",
+                    values_from = "response")
+
+    # Return the transformed data
+    return(data)
+}
+
+generic_gpt35_df <- process_data(file.path("data", "data_for_R", "generic_gpt35_df.csv"))
+generic_gpt4_df <- process_data(file.path("data", "data_for_R", "generic_gpt4_df.csv"))
+
+silicon_gpt35_df <- process_data(file.path("data", "data_for_R", "silicon_gpt35_df.csv"))
+silicon_gpt4_df <- process_data(file.path("data", "data_for_R", "silicon_gpt4_df.csv"))
+```
+
+```{r}
+get_fa_model_loadings <- function(data, model_label) {
+  cor_matrix <- cor(select(data, -uid),
+                  use = "pairwise.complete.obs")
+
+  model <- fa(r = cor_matrix, nfactors = 5, 
+                       rotate = "oblimin", fm = "pa", 
+                       max.iter = 5000, n.obs = length(rownames(data)))
+  
+  df <- as.data.frame(unclass(model$loadings))
+  df$item <- rownames(df)
+  rownames(df) <- NULL
+  df <- df %>%
+    pivot_longer(cols=-item,
+                 names_to="factor",
+                 values_to="loading") %>%
+    mutate(model=model_label)
+  
+  return(df)
+}
+```
+
+```{r}
+if (!dir.exists(file.path("data", "bbc_data"))) {
+  load(file.path("data", "bbc_data_for_sharing", "bbc_loadings.Rdata"))
+} else {
+  bbc_df <- process_data(file.path("data", "bbc_data", "bbc_df.csv"))
+  bbc_loadings <- get_fa_model_loadings(bbc_df, "bbc")
+  save(bbc_loadings, file=file.path("data", "bbc_data_for_sharing", "bbc_loadings.Rdata"))
+}
+```
+
+```{r}
+efa_loadings <- bind_rows(bbc_loadings,
+                          get_fa_model_loadings(generic_gpt35_df, "generic_gpt35"),
+                          get_fa_model_loadings(generic_gpt4_df, "generic_gpt4"),
+                          get_fa_model_loadings(silicon_gpt35_df, "silicon_gpt35"),
+                          get_fa_model_loadings(silicon_gpt4_df, "silicon_gpt4")
+                          ) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         # model = fct_relevel(model, levels(model)[3], after=1)
+         )
+efa_loadings
+```
+
+## Figure EFA loadings
+
+```{r fig.width=15, fig.height=6}
+efa_loadings %>%
+  mutate(loading = abs(loading)) %>%
+  ggplot(aes(x=factor, y=item, fill=loading)) +
+      geom_tile() +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      facet_wrap(~model, nrow=1) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      labs(x = "Principal Component", y = "Variable")
+```
+
+## Table EFA loadings
+
+```{r}
+efa_loadings %>%
+  mutate(dimension = str_sub(item, 1, 1),
+         item_index = as.double(str_sub(item, 2, -1))) %>%
+  arrange(dimension, item_index, model, factor) %>%
+  mutate(item=paste0(dimension, item_index)) %>%
+  pivot_wider(id_cols=item,
+              names_from=c("model", "factor"),
+              values_from="loading") %>%
+  mutate(across(is.numeric, ~format_apa(.))) #%>%
+  # write.csv("figures-tables/efa_loadings.csv", row.names=F)
+```
+
+# Figure: Trait bias
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "bias_df.csv")) %>%
+  mutate(model = recode(model, !!!model_labels2))
+```
+
+```{r fig.width=12, fig.height=6}
+data_summary_stats_labels <- data %>%
+  group_by(model, trait) %>%
+  summarise(label = paste0('<i>M</i>=', format_apa(mean(bias)), ' (<i>SD</i>=', format_apa(sd(bias)), ')'))
+
+data_p_val_labels <- data %>%
+  group_by(trait) %>%
+  summarise(label = if_else(
+    t.test(bias~model, data=cur_data())$p.value < 0.05,
+    paste0('<b><i>p</i> ', format_apa(t.test(bias~model, data=cur_data())$p.value, T), '</b>'),
+    paste0('<i>p</i> ', format_apa(t.test(bias~model, data=cur_data())$p.value, T))
+    )
+  )
+
+
+ggplot(data, aes(x=model, y=bias)) +
+    geom_violin(width=0.6) +
+    geom_boxplot(width=0.05, alpha=0.2) +
+    ggtext::geom_richtext(data=data_summary_stats_labels, 
+                            mapping=aes(y=3.5, x=model, label=label, group=NULL, fill=NULL), 
+                            size=3,
+                            show.legend=F) +
+    ggtext::geom_richtext(data=data_p_val_labels, 
+                            mapping=aes(y=3, x=1.5, label=label, group=NULL, fill=NULL), 
+                            size=3,
+                            show.legend=F) +
+    labs(x="Model", y="Bias") +
+    facet_wrap(~trait) +
+    scale_y_continuous(limits=c(0, 3.7))
+```
+
+# Figure: Bias correlations
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "bias_corrs_df.csv"))
+data
+```
+
+```{r}
+labels_mapper_p1 <- c(
+  "BFI_Agreeableness" = "Agreeableness", "BFI_Conscientiousness" = "Conscientiousness",
+  "BFI_Extraversion" = "Extraversion", "BFI_Openness" = "Openness", "BFI_Neuroticism" = "Neuroticism"
+)
+labels_mapper_p2 <- c(
+  "age" = "Age", "sex" = "Sex", "ethnic" = "Ethnicity", "income" = "Income",
+  "rstat_1" = "Relationship status", "n_sib" = "Number of siblings"
+)
+labels_mapper_p3 <- c(
+  "st_pub" = "State or private schooling", "chldrn" = "Number of children", 
+  "occ_sta" = "Occupational status", "occ_cat" = "Occupation category",
+  "m_schl" = "Mother's education", "f_schl" = "Father's education"
+)
+```
+
+
+```{r fig.width=12, fig.height=9}
+p1 <- data %>%
+  filter(str_detect(var, "^BFI_")) %>%
+  mutate(var = recode(var, !!!labels_mapper_p1)) %>%
+  ggplot(aes(x = var, y = r, fill=model)) +
+      geom_col(position = position_dodge()) +
+      geom_text(aes(label = format_apa(r),
+                    vjust = if_else(r>0, -0.3, 1)), 
+                  position = position_dodge(width = 0.9), 
+                  color = "black", 
+                  size = 3.5, 
+                  check_overlap = TRUE) +
+      labs(x="", y="Correlation coefficient", fill="") +
+      scale_fill_grey(labels=c("GPT-3.5", "GPT-4")) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p1
+```
+
+```{r fig.width=12, fig.height=9}
+p2_vars <- c("age", "sex", "ethnic", "income", "rstat_1", "n_sib")
+
+labels_mapper <- c("st_pub" = "State or private schooling", "chldrn" = "Number of children", 
+                   "occ_sta" = "Occupational status", "occ_cat" = "Occupation category",
+                   "m_schl" = "Mother's education", "f_schl" = "Father's education")
+
+p2 <- data %>%
+  filter(var %in% p2_vars) %>%
+  mutate(var = recode(var, !!!labels_mapper_p2)) %>%
+  ggplot(aes(x = var, y = r, fill=model)) +
+      geom_col(position = position_dodge()) +
+      geom_text(aes(label = format_apa(r),
+                    vjust = if_else(r>0, -0.3, 1)), 
+                  position = position_dodge(width = 0.9), 
+                  color = "black", 
+                  size = 3.5, 
+                  check_overlap = TRUE) +
+      labs(x="", y="", fill="") +
+      guides(fill="none") +
+      scale_y_continuous(limits=c(-0.05, 0.11)) +
+      scale_fill_grey(labels=c("GPT-3.5", "GPT-4")) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p3 <- data %>%
+  filter(!str_detect(var, "^BFI_"), !var %in% p2_vars) %>%
+  mutate(var = recode(var, !!!labels_mapper_p3)) %>%
+  ggplot(aes(x = var, y = r, fill=model)) +
+      geom_col(position = position_dodge()) +
+      geom_text(aes(label = format_apa(r),
+                    vjust = if_else(r>0, -0.3, 1)), 
+                  position = position_dodge(width = 0.9), 
+                  color = "black", 
+                  size = 3.5, 
+                  check_overlap = TRUE) +
+      labs(x="", y="", fill="") +
+      # guides(fill="none") +
+      scale_fill_grey(labels=c("GPT-3.5", "GPT-4")) +
+      scale_y_continuous(limits=c(-0.05, 0.11)) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p3
+```
+
+```{r fig.width=12, fig.height=9}
+p2_p3 <- ggarrange(p2, p3, nrow=2, ncol=1, common.legend = T, legend="none")
+p2_p3
+```
+
+
+```{r fig.width=12, fig.height=9}
+ggarrange(p1, p2_p3,
+          # labels = c("A: Study 1", "B: Study 2", "C: Study 5"),
+          font.label=list(size=20, color="black", face="bold"),
+          nrow=1, ncol=2,
+          common.legend=T,
+          legend="bottom")
+```
+
+```{r fig.width=12, fig.height=9}
+ggplot(data, aes(x = var, y = r, fill=model)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(r)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, 
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Figure: Supplementary - Analysis of the first token of the responses
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "combined_first_token_digit_item_frequencies.csv")) %>%
+  mutate(model = gsub("_relative_frequency", "", model),
+         model = recode(model, !!!model_labels),
+         model = factor(model),
+         first_token_is_digit = if_else(first_token_is_digit, "first token is digit", "first token is NOT digit")
+         )
+data
+```
+
+```{r fig.width=12}
+p <- ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(relative_frequency)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, 
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE)
+
+p + facet_grid(rows = vars(model), cols = vars(first_token_is_digit), scales = "free_x") +
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold"),
+    strip.text.y = element_text(face = "bold", angle = 0)
+  ) + 
+  labs(y="Frequency", x="Item-level response") +
+  scale_y_continuous(limits=c(0, 0.8))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
