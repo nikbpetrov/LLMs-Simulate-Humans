@@ -335,19 +335,20 @@ ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
 process_data <- function(filepath) {
     # Read the CSV file from the given file path
     data <- read_csv(filepath)
+    
+    # add the scale column to the bbc data for consistency
+    if (grepl("bbc_df.csv", filepath, fixed=T)) {
+      data <- data %>%
+        mutate(scale="BFI")
+    }
 
     # Apply transformations
     data <- data %>%
         mutate(uid = as.factor(uid),
-               dimension = substr(dimension, 1, 1)) %>%
-        rename("response" = "response_reversed") %>%
-        arrange(dimension, item_index) %>%
-        pivot_wider(id_cols = uid,
-                    names_from = c("dimension", "item_index"),
-                    names_sep = "",
-                    values_from = "response")
-
-    # Return the transformed data
+               scale = as.factor(scale),
+               dimension = substr(dimension, 1, 1) # makes it easier for EFA loadings display later
+               ) %>%
+        rename("response" = "response_reversed")
     return(data)
 }
 
@@ -359,11 +360,47 @@ silicon_gpt4_df <- process_data(file.path("data", "data_for_R", "silicon_gpt4_df
 ```
 
 ```{r}
-get_fa_model_loadings <- function(data, model_label) {
-  cor_matrix <- cor(select(data, -uid),
-                  use = "pairwise.complete.obs")
+get_fa_model_loadings <- function(data, scale, model_label) {
+  if (scale=="BFI") {
+    data <- data %>%
+      filter(scale=="BFI")
+    n_factors <- 5
+  } else if (scale=="SSCS") {
+    data <- data %>%
+      filter(scale=="SSCS")
+    n_factors <- 2
+  } else if (scale=="BPAQ") {
+    data <- data %>%
+      filter(scale=="BPAQ")
+    n_factors <- 4
+  } else if (scale=="PANAS") {
+    data <- data %>%
+      filter(scale=="PANAS")
+    n_factors <- 2
+  }
+  
+  items_no_variance <- c()
+  if (scale=="BPAQ" & model_label=="silicon_gpt35") {
+    items_no_variance <- c("A18", "V10")
+  } else if (scale=="BPAQ" & model_label=="silicon_gpt4") {
+    items_no_variance <- c("P8")
+  } else if (scale=="SSCS" & model_label=="silicon_gpt35") {
+    items_no_variance <- c("P10")
+  }
+  
+  data <- data %>%
+    select(-scale) %>%
+    arrange(dimension, item_index) %>%
+    pivot_wider(id_cols = uid,
+                names_from = c("dimension", "item_index"),
+                names_sep = "",
+                values_from = "response") %>%
+    select(-uid) %>% #for the cor_matrix
+    select(-items_no_variance)
+  
+  cor_matrix <- cor(data, use = "pairwise.complete.obs")
 
-  model <- fa(r = cor_matrix, nfactors = 5, 
+  model <- fa(r = cor_matrix, nfactors = n_factors, 
                        rotate = "oblimin", fm = "pa", 
                        max.iter = 5000, n.obs = length(rownames(data)))
   
@@ -380,35 +417,35 @@ get_fa_model_loadings <- function(data, model_label) {
 }
 ```
 
+## BFI
+
 ```{r}
 if (!dir.exists(file.path("data", "bbc_data"))) {
   load(file.path("data", "bbc_data_for_sharing", "bbc_loadings.Rdata"))
 } else {
   bbc_df <- process_data(file.path("data", "bbc_data", "bbc_df.csv"))
-  bbc_loadings <- get_fa_model_loadings(bbc_df, "bbc")
+  bbc_loadings <- get_fa_model_loadings(bbc_df, "BFI", "bbc")
   save(bbc_loadings, file=file.path("data", "bbc_data_for_sharing", "bbc_loadings.Rdata"))
 }
 ```
 
 ```{r}
-efa_loadings <- bind_rows(bbc_loadings,
-                          get_fa_model_loadings(generic_gpt35_df, "generic_gpt35"),
-                          get_fa_model_loadings(generic_gpt4_df, "generic_gpt4"),
-                          get_fa_model_loadings(silicon_gpt35_df, "silicon_gpt35"),
-                          get_fa_model_loadings(silicon_gpt4_df, "silicon_gpt4")
+efa_loadings_bfi <- bind_rows(bbc_loadings,
+                          get_fa_model_loadings(generic_gpt35_df, "BFI", "generic_gpt35"),
+                          get_fa_model_loadings(generic_gpt4_df, "BFI", "generic_gpt4"),
+                          get_fa_model_loadings(silicon_gpt35_df, "BFI", "silicon_gpt35"),
+                          get_fa_model_loadings(silicon_gpt4_df, "BFI", "silicon_gpt4")
                           ) %>%
   mutate(model = recode(model, !!!model_labels),
-         model = factor(model),
-         # model = fct_relevel(model, levels(model)[3], after=1)
-         )
-efa_loadings
+         model = factor(model))
 ```
 
-## Figure EFA loadings
+### Figure EFA loadings
 
 ```{r fig.width=15, fig.height=6}
-efa_loadings %>%
-  mutate(loading = abs(loading)) %>%
+efa_loadings_bfi %>%
+  mutate(loading = abs(loading),
+         item = factor(item, levels=rev(unique(efa_loadings_bfi$item)))) %>%
   ggplot(aes(x=factor, y=item, fill=loading)) +
       geom_tile() +
       scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
@@ -418,7 +455,7 @@ efa_loadings %>%
       labs(x = "Principal Component", y = "Variable")
 ```
 
-## Table EFA loadings
+### Table EFA loadings
 
 ```{r}
 efa_loadings %>%
@@ -432,6 +469,90 @@ efa_loadings %>%
   mutate(across(is.numeric, ~format_apa(.))) #%>%
   # write.csv("figures-tables/efa_loadings.csv", row.names=F)
 ```
+
+## All other questionnaires
+
+### BPAQ
+
+```{r}
+efa_loadings_bpaq <- bind_rows(get_fa_model_loadings(generic_gpt35_df, "BPAQ", "generic_gpt35"),
+                                get_fa_model_loadings(generic_gpt4_df, "BPAQ", "generic_gpt4"),
+                                get_fa_model_loadings(silicon_gpt35_df, "BPAQ", "silicon_gpt35"),
+                                get_fa_model_loadings(silicon_gpt4_df, "BPAQ", "silicon_gpt4")
+                               ) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model))
+```
+
+#### Figure EFA loadings
+
+```{r fig.width=15, fig.height=6}
+efa_loadings_bpaq %>%
+  mutate(loading = abs(loading)) %>%
+  # reordering is based on the item_index essentially
+  ggplot(aes(x=factor, y=reorder(item, as.integer(str_sub(item, 2, -1)), decreasing=T), fill=loading)) +
+      geom_tile() +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      facet_wrap(~model, nrow=1) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      labs(x = "Principal Component", y = "Variable")
+```
+
+### SSCS
+
+```{r}
+efa_loadings_sscs <- bind_rows(get_fa_model_loadings(generic_gpt35_df, "SSCS", "generic_gpt35"),
+                                get_fa_model_loadings(generic_gpt4_df, "SSCS", "generic_gpt4"),
+                                get_fa_model_loadings(silicon_gpt35_df, "SSCS", "silicon_gpt35"),
+                                get_fa_model_loadings(silicon_gpt4_df, "SSCS", "silicon_gpt4")
+                               ) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model))
+```
+
+#### Figure EFA loadings
+
+```{r fig.width=15, fig.height=6}
+efa_loadings_sscs %>%
+  mutate(loading = abs(loading),
+         item = factor(item, levels=rev(unique(efa_loadings_sscs$item)))) %>%
+  ggplot(aes(x=factor, y=item, fill=loading)) +
+      geom_tile() +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      facet_wrap(~model, nrow=1) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      labs(x = "Principal Component", y = "Variable")
+```
+
+### PANAS
+
+```{r}
+efa_loadings_panas <- bind_rows(get_fa_model_loadings(generic_gpt35_df, "PANAS", "generic_gpt35"),
+                                get_fa_model_loadings(generic_gpt4_df, "PANAS", "generic_gpt4"),
+                                get_fa_model_loadings(silicon_gpt35_df, "PANAS", "silicon_gpt35"),
+                                get_fa_model_loadings(silicon_gpt4_df, "PANAS", "silicon_gpt4")
+                               ) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model))
+```
+
+#### Figure EFA loadings
+
+```{r fig.width=15, fig.height=6}
+efa_loadings_panas %>%
+  mutate(loading = abs(loading),
+         item = factor(item, levels=rev(unique(efa_loadings_panas$item)))) %>%
+  ggplot(aes(x=factor, y=item, fill=loading)) +
+      geom_tile() +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      facet_wrap(~model, nrow=1) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      labs(x = "Principal Component", y = "Variable")
+```
+
 
 # Figure: Trait bias
 
