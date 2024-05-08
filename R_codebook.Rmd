@@ -39,6 +39,38 @@ show_data_markdown <- function(data, group_var=NULL, rows_by_group=Inf, row_limi
     return(data_to_display)
   }
 }
+
+save_versioned_plot <- function(plot, filename, directory = "figures-tables/", width=12, height=9, ...) {
+  # Ensure the directory ends with a slash
+  if (!grepl("/$", directory)) {
+    directory <- paste0(directory, "/")
+  }
+  
+  # Construct the pattern to search for existing files
+  pattern <- paste0("^", filename, "_v[0-9]+\\.png$")
+  
+  # List all files in the directory
+  files <- list.files(directory, pattern = pattern)
+  
+  # Extract version numbers
+  versions <- gsub(pattern = paste0("^", filename, "_v([0-9]+)\\.png$"), replacement = "\\1", x = files)
+  versions <- as.integer(versions)
+  
+  # Determine the next version number
+  if (length(versions) == 0) {
+    next_version <- 1
+  } else {
+    next_version <- max(versions) + 1
+  }
+  
+  # Construct the new filename with the next version number
+  new_filename <- sprintf("%s%s_v%02d.png", directory, filename, next_version)
+  
+  # Save the plot with additional arguments passed to ggsave
+  ggsave(new_filename, plot = plot, width = width, height = height, ...)
+  
+  cat(sprintf("Plot saved as %s\n", new_filename))
+}
 ```
 
 Packages loading and setup:
@@ -114,227 +146,12 @@ model_labels2 <- c("gpt35" = "GPT3.5", "gpt4" = "GPT4")
 scale_labels <- c("BFI" = "BFI", "BPAQ" = "BPAQ", "SSCS" = "SSCS", "PANAS" = "PANAS")
 ```
 
-# Figure: internal consistency
-
-```{r fig.width=16}
-data <- read_csv(file.path("data", "data_for_R", "combined_cronbach_alpha_df.csv")) %>%
-  pivot_longer(cols=-c("scale", "dimension"),
-               names_to="model",
-               values_to="alpha") %>%
-  mutate(model = gsub("_alpha", "", model),
-         scale = recode(scale, !!!scale_labels),
-         model = recode(model, !!!model_labels),
-         model = factor(model),
-         # model = fct_relevel(model, levels(model)[3], after=1)
-         )
-
-p_bfi <- data %>%
-  filter(scale=="BFI") %>%
-  ggplot(aes(x = dimension, y = alpha)) +
-    geom_col(position = position_dodge()) +
-    geom_hline(yintercept=0.7) +
-    geom_text(aes(label = format_apa(alpha)), 
-              position = position_dodge(width = 0.9), 
-              vjust = -0.3, 
-              color = "black", 
-              size = 3.5, 
-              check_overlap = TRUE) +
-    facet_wrap(~scale+model, scales = "free_x", nrow=4, ncol=1) +
-    scale_y_continuous(limits=c(0, 1.03)) +
-    theme(strip.text = element_blank(),
-          axis.text.x = element_text(angle=45, hjust=1))
-
-p_others <- data %>%
-  filter(scale!="BFI") %>%
-  ggplot(aes(x = dimension, y = alpha)) +
-    geom_col(position = position_dodge()) +
-    geom_hline(yintercept=0.7) +
-    geom_text(aes(label = format_apa(alpha)), 
-              position = position_dodge(width = 0.9), 
-              vjust = -0.3, 
-              color = "black", 
-              size = 3.5, 
-              check_overlap = TRUE) +
-    facet_wrap(~model+scale, scales = "free_x", nrow=4) +
-    scale_y_continuous(limits=c(0, 1.03)) +
-    theme(strip.text = element_blank(),
-          axis.ticks.y = element_blank(),
-          axis.text.y = element_blank(),
-          axis.title.y = element_blank(),
-          axis.line.y = element_blank())
-
-ggarrange(p_bfi, p_others,
-          labels = c("", ""),
-          # nrow=1, ncol=2,
-          widths=c(0.25, 0.75)
-          # common.legend=T,
-          # legend="bottom"
-          )
-```
-
-```{r fig.width=24}
-p <- data %>%
-  ggplot(aes(x = dimension, y = alpha)) +
-    geom_col(position = position_dodge()) +
-    geom_hline(yintercept=0.7) +
-    geom_text(aes(label = format_apa(alpha)), 
-              position = position_dodge(width = 0.9), 
-              vjust = -0.3, 
-              color = "black", 
-              size = 3.5, 
-              check_overlap = TRUE) +
-    # facet_wrap(~scale+model, scales = "free_x") +
-    scale_y_continuous(limits=c(0, 1.03))
-
-p + facet_grid(rows = vars(model), cols = vars(scale), scales = "free_x") +
-  theme(
-    strip.placement = "outside",
-    strip.background = element_blank(),
-    strip.text.x = element_text(face = "bold"),
-    strip.text.y = element_text(face = "bold", angle = 0)
-  ) +
-  labs(x="Dimension", y="Cronbach's alpha")
-```
-
-# Figure: Criterion Validity
-
-```{r fig.width=12}
-data <- read_csv(file.path("data", "data_for_R", "combined_validity_df.csv")) %>%
-  pivot_longer(cols=-c("var1", "var2"),
-               names_to="model",
-               values_to="r") %>%
-  rowwise() %>%
-  mutate(var1 = if_else(startsWith(var1, "BFI_"), strsplit(var1, "_")[[1]][2], var1)) %>%
-  ungroup() %>%
-  mutate(model = gsub("_r", "", model),
-         model = recode(model, !!!model_labels),
-         model = factor(model),
-         model = fct_relevel(model, levels(model)[3], after=0)
-         )
-
-data
-```
-
-```{r fig.width=20}
-p <- ggplot(data, aes(x = var2, y = r)) +
-    geom_col(position = position_dodge()) +
-    geom_text(aes(label = format_apa(r)), 
-                position = position_dodge(width = 0.9), 
-                vjust = -0.3, 
-                color = "black", 
-                size = 3.5, 
-                check_overlap = TRUE) #+
-    # facet_wrap(~var1, scales = "free_x")
-
-p + facet_grid(rows = vars(model), cols = vars(var1), scales = "free_x") +
-  theme(
-    strip.placement = "outside",
-    strip.background = element_blank(),
-    strip.text.x = element_text(face = "bold"),
-    strip.text.y = element_text(face = "bold", angle = 0),
-    axis.title.x = element_blank()
-  ) + 
-  labs(y="Correlation (Pearson's r)")
-```
-
-# Figure: Intercorrelations
-
-```{r}
-# Read the data
-data <- read.csv(file.path("data", "data_for_R", "intercorrs.csv")) %>%
-  mutate(model = recode(model, !!!model_labels),
-         model = factor(model),
-         # model = fct_relevel(model, levels(model)[3], after=1)
-         )
-
-data
-```
-
-```{r fig.width=9, fig.height=12}
-ggplot(data, aes(x = var1, y = r, fill=model)) +
-    geom_col(position = position_dodge()) +
-    geom_text(aes(label = format_apa(r)), 
-                position = position_dodge(width = 0.9), 
-                vjust = -0.3, 
-                color = "black", 
-                size = 3.5, 
-                check_overlap = TRUE) +
-    facet_wrap(~var2, ncol=1)
-```
-
-```{r fig.width=30}
-p <- ggplot(data, aes(x = var1, y = r)) +
-    geom_col(position = position_dodge()) +
-    geom_text(aes(label = format_apa(r)), 
-                position = position_dodge(width = 0.9), 
-                vjust = -0.3, 
-                color = "black", 
-                size = 3.5, 
-                check_overlap = TRUE) #+
-    # facet_wrap(~var2, ncol=1)
-
-p + facet_grid(rows = vars(model), cols = vars(var2), scales = "free_x") +
-  theme(
-    strip.placement = "outside",
-    strip.background = element_blank(),
-    strip.text.x = element_text(face = "bold"),
-    strip.text.y = element_text(face = "bold", angle = 0),
-    axis.title.x = element_blank()
-  ) + 
-  labs(y="Correlation (Pearson's r)")
-```
-
-# Figure: Item-level frequencies
-
-```{r}
-data <- read_csv(file.path("data", "data_for_R", "combined_bfi_item_frequencies.csv")) %>%
-  mutate(model = gsub("_relative_frequency", "", model),
-         model = recode(model, !!!model_labels),
-         model = factor(model),
-         # model = fct_relevel(model, levels(model)[3], after=1)
-         )
-data
-```
-
-```{r fig.width=12}
-p <- ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
-    geom_col(position = position_dodge()) +
-    geom_text(aes(label = format_apa(relative_frequency)), 
-                position = position_dodge(width = 0.9), 
-                vjust = -0.3, 
-                color = "black", 
-                size = 3.5, 
-                check_overlap = TRUE)
-
-p + facet_grid(rows = vars(model), cols = vars(dimension), scales = "free_x") +
-  theme(
-    strip.placement = "outside",
-    strip.background = element_blank(),
-    strip.text.x = element_text(face = "bold"),
-    strip.text.y = element_text(face = "bold", angle = 0)
-  ) + 
-  labs(y="Frequency", x="Item-level response") +
-  scale_y_continuous(limits=c(0, 0.8))
-```
-
-```{r fig.width=12, fig.height=9}
-ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
-    geom_col(position = position_dodge()) +
-    # geom_text(aes(label = format_apa(r)), 
-    #             position = position_dodge(width = 0.9), 
-    #             vjust = -0.3, 
-    #             color = "black", 
-    #             size = 3.5, 
-    #             check_overlap = TRUE) +
-    facet_wrap(~dimension+model)
-```
-
-# EFA
+## Reading in LLM data
 
 ```{r}
 process_data <- function(filepath) {
     # Read the CSV file from the given file path
-    data <- read_csv(filepath)
+    data <- read_csv(filepath, show_col_types=F)
     
     # add the scale column to the bbc data for consistency
     if (grepl("bbc_df.csv", filepath, fixed=T)) {
@@ -358,6 +175,323 @@ generic_gpt4_df <- process_data(file.path("data", "data_for_R", "generic_gpt4_df
 silicon_gpt35_df <- process_data(file.path("data", "data_for_R", "silicon_gpt35_df.csv"))
 silicon_gpt4_df <- process_data(file.path("data", "data_for_R", "silicon_gpt4_df.csv"))
 ```
+
+# Figure: First token of the responses
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "combined_first_token_digit_item_frequencies.csv"),
+                 show_col_types=F) %>%
+  mutate(model = gsub("_relative_frequency", "", model),
+         model = recode(model, !!!model_labels),
+         model = factor(model),
+         first_token_is_digit = if_else(first_token_is_digit, "first token is digit", "first token is NOT digit")
+         )
+```
+
+```{r fig.width=12}
+p <- ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(relative_frequency)), 
+                position = position_dodge(width = 0.9), 
+                vjust = -0.3, 
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE)
+
+p <- p + facet_grid(rows = vars(model), cols = vars(first_token_is_digit), scales = "free_x") +
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    strip.text.x = element_text(face = "bold"),
+    strip.text.y = element_text(face = "bold", angle = 0)
+  ) + 
+  labs(y="Proportion", x="Item-level response") +
+  scale_y_continuous(limits=c(0, 0.8))
+
+p
+# save_versioned_plot(p, "first_token_digit")
+```
+
+# Figure: internal consistency
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "combined_cronbach_alpha_df.csv"), show_col_types=F) %>%
+  pivot_longer(cols=-c("scale", "dimension"),
+               names_to="model",
+               values_to="alpha") %>%
+  mutate(model = gsub("_alpha", "", model),
+         scale = recode(scale, !!!scale_labels),
+         model = recode(model, !!!model_labels),
+         model = factor(model))
+```
+
+```{r fig.width=12, fig.height=9}
+p <- data %>%
+  ggplot(aes(x = dimension, y = alpha)) +
+    geom_col(position = position_dodge()) +
+    geom_hline(yintercept=0.7) +
+    geom_text(aes(label = format_apa(alpha)), 
+              position = position_dodge(width = 0.9), 
+              vjust = -0.3, 
+              color = "black", 
+              size = 3.5, 
+              check_overlap = TRUE) +
+    scale_y_continuous(limits=c(0, 1.03)) + 
+    facet_grid(rows = vars(model), cols = vars(scale), scales = "free_x") +
+    theme(
+      strip.placement = "outside",
+      strip.background = element_blank(),
+      strip.text.x = element_text(face = "bold", angle = 0),
+      strip.text.y = element_text(face = "bold", angle = 0),
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    ) +
+    labs(x="Dimension", y="Cronbach's alpha")
+
+p
+# save_versioned_plot(p, "cronbachs_alpha")
+```
+
+
+
+
+
+
+
+```{r}
+calculate_alpha_for_group <- function(data) {
+  tmp <- data %>%
+    pivot_wider(id_cols=uid, 
+                  names_from="item_index", names_prefix="item_", 
+                  values_from="response") %>%
+    select(-uid) %>%
+    psych::alpha()
+  
+  return(tmp$total$std.alpha)
+}
+
+calculate_omega_for_group <- function(data) {
+  tmp <- data %>%
+    pivot_wider(id_cols=uid, 
+                names_from="item_index", names_prefix="item_", 
+                values_from="response") %>%
+    select(-uid) %>%
+    cor(use="pairwise") %>%
+    as_tibble() %>%
+    filter(!if_all(everything(), is.na)) %>%
+    select(where(~!all(is.na(.)))) %>%
+    omega(nfactors=1, fm="pa", rotate="oblimin")
+
+  return(tmp$omega.tot)
+}
+
+calculate_glb_for_group <- function(data) {
+  tmp <- data %>%
+    pivot_wider(id_cols=uid, 
+                names_from="item_index", names_prefix="item_", 
+                values_from="response") %>%
+    select(-uid) %>%
+    cor(use="pairwise") %>%
+    as_tibble() %>%
+    filter(!if_all(everything(), is.na)) %>%
+    select(where(~!all(is.na(.)))) %>%
+    glb.fa()
+  
+  return(tmp$glb)
+}
+
+get_reliability_coeffs <- function(data, model_label) {
+  data %>%
+    mutate(dimension = case_when(
+      scale=="BFI" & dimension=="O" ~ "Openness",
+      scale=="BFI" & dimension=="C" ~ "Conscientiousness",
+      scale=="BFI" & dimension=="E" ~ "Extraversion",
+      scale=="BFI" & dimension=="A" ~ "Agreeableness",
+      scale=="BFI" & dimension=="N" ~ "Neuroticism",
+      scale=="BPAQ" & dimension=="A" ~ "Anger",
+      scale=="BPAQ" & dimension=="H" ~ "Hostility",
+      scale=="BPAQ" & dimension=="P" ~ "Physical",
+      scale=="BPAQ" & dimension=="V" ~ "Verbal",
+      scale=="PANAS" & dimension=="N" ~ "Negative",
+      scale=="PANAS" & dimension=="P" ~ "Positive",
+      scale=="SSCS" & dimension=="P" ~ "Personal Identity",
+      scale=="SSCS" & dimension=="S" ~ "Self-efficacy",
+    )) %>%
+    group_by(scale, dimension) %>%
+    summarise(model = model_label,
+              alpha = calculate_alpha_for_group(cur_data()),
+              omega = calculate_omega_for_group(cur_data()),
+              glb = calculate_glb_for_group(cur_data()))
+}
+
+reliability_coeffs_df <- get_reliability_coeffs(generic_gpt35_df, "generic_gpt35") %>%
+  bind_rows(get_reliability_coeffs(generic_gpt4_df, "generic_gpt4")) %>%
+  bind_rows(get_reliability_coeffs(silicon_gpt35_df, "silicon_gpt35")) %>%
+  bind_rows(get_reliability_coeffs(silicon_gpt4_df, "silicon_gpt4")) %>%
+  pivot_longer(cols=-c(scale, dimension, model),
+               names_to="coeff",
+               values_to="value") %>%
+  mutate(scale = recode(scale, !!!scale_labels),
+         model = recode(model, !!!model_labels),
+         model = factor(model))
+reliability_coeffs_df
+```
+
+```{r fig.width=12, fig.height=9}
+p <- reliability_coeffs_df %>%
+  ggplot(aes(x = dimension, y = value, fill=coeff)) +
+    geom_col(position = position_dodge(width=0.9)) +
+    # geom_hline(yintercept=0.7) +
+    geom_text(aes(label = format_apa(value)), 
+              position = position_dodge(width = 0.9), 
+              vjust = -0.3, 
+              color = "black", 
+              size = 2.5, 
+              check_overlap = TRUE) +
+    scale_y_continuous(limits=c(0, 1.03)) + 
+    scale_fill_manual(values=c("black", "grey40", "grey80"), 
+                      labels=c("Cronbach's alpha", 
+                               "Greatest Lower Bound (glb)", 
+                               "McDonald's omega")) +
+    facet_grid(rows = vars(model), cols = vars(scale), scales = "free_x") +
+    theme(
+      strip.placement = "outside",
+      strip.background = element_blank(),
+      strip.text.x = element_text(face = "bold", angle = 0),
+      strip.text.y = element_text(face = "bold", angle = 0),
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    ) +
+    labs(x="Dimension", y="Reliability coefficient's value", fill="")
+
+p
+# save_versioned_plot(p, "reliability_coefficients")
+```
+# Figure: Criterion Validity
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "combined_validity_df.csv"), show_col_types=F) %>%
+  pivot_longer(cols=-c("var1", "var2"),
+               names_to="model",
+               values_to="r") %>%
+  rowwise() %>%
+  mutate(var1 = if_else(startsWith(var1, "BFI_"), strsplit(var1, "_")[[1]][2], var1)) %>%
+  ungroup() %>%
+  mutate(model = gsub("_r", "", model),
+         model = recode(model, !!!model_labels),
+         model = factor(model),
+         model = fct_relevel(model, levels(model)[3], after=0))
+```
+
+```{r fig.width=12, fig.height=9}
+p <- data %>%
+  ggplot(aes(x = var2, y = r)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(r),
+                  vjust = if_else(r>0, -0.4, 1.2)), 
+                position = position_dodge(width = 0.9),
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE) + 
+    scale_y_continuous(limits=c(-1.15,1.15)) +
+    facet_grid(rows = vars(model), cols = vars(var1), scales = "free_x") +
+    theme(
+      strip.placement = "outside",
+      strip.background = element_blank(),
+      strip.text.x = element_text(face = "bold", size=10),
+      strip.text.y = element_text(face = "bold", size=10, angle=0),
+      axis.title.x = element_blank(),
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size=10),
+      panel.spacing.y = unit(0.3, "inches")
+    ) + 
+    labs(y="Correlation (Pearson's r)")
+
+p
+# save_versioned_plot(p, "validity")
+```
+
+# Figure: Intercorrelations
+
+```{r}
+data <- read.csv(file.path("data", "data_for_R", "intercorrs.csv")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model))
+```
+
+```{r fig.width=12, fig.height=9, warning=FALSE}
+p_list <- list()
+for (m in levels(data$model)) {
+  p <- data %>%
+    filter(model==m) %>%
+    ggplot(aes(x = var1, y = var2, fill = r)) + 
+      geom_tile() +
+      geom_text(aes(label = if_else(is.na(r), NA, format_apa(r))), color = "black", size = 3) +
+      scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                           midpoint = 0, limit = c(-1,1), space = "Lab", 
+                           name="Correlation") +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+            legend.position="top",
+            legend.justification="center",
+            legend.direction="vertical",
+            legend.text=element_text(size=12)) +
+      facet_wrap(~model, scales = "free") +
+      labs(x = "", y = "") 
+  p_list[[m]] <- p
+}
+
+legend <- get_legend(p_list[[1]])
+
+p_list <- lapply(p_list, function(p) {
+  p + theme(legend.position="none")
+})
+
+empty_plot <- ggplot() + theme_void() + theme(plot.background = element_blank(), panel.grid = element_blank(), panel.background = element_blank())
+
+p <- ggarrange(
+  ggarrange(empty_plot, empty_plot, p_list[[1]], empty_plot, legend, widths=c(0.1625, 0.1625, 0.35, 0.1625, 0.1625),
+            nrow=1),
+  ggarrange(empty_plot, p_list[[2]], empty_plot, p_list[[3]], empty_plot, widths=c(0.1, 0.35, 0.1, 0.35, 0.1), 
+            nrow=1),
+  ggarrange(empty_plot, p_list[[4]], empty_plot, p_list[[5]], empty_plot, widths=c(0.1, 0.35, 0.1, 0.35, 0.1), 
+            nrow=1),
+  nrow=3
+)
+
+p
+# save_versioned_plot(p, "intercorrelations", bg="white")
+```
+
+# Figure: Item-level frequencies
+
+```{r}
+data <- read_csv(file.path("data", "data_for_R", "combined_bfi_item_frequencies.csv"),
+                 show_col_types=F) %>%
+  mutate(model = gsub("_relative_frequency", "", model),
+         model = recode(model, !!!model_labels),
+         model = factor(model))
+```
+
+```{r fig.width=12, fig.height=9}
+p <- ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
+    geom_col(position = position_dodge()) +
+    geom_text(aes(label = format_apa(relative_frequency)), 
+                position = position_dodge(width = 0.9),
+                vjust = -0.3,
+                color = "black", 
+                size = 3.5, 
+                check_overlap = TRUE) + 
+    facet_grid(rows = vars(model), cols = vars(dimension), scales = "free_x") +
+    theme(
+      strip.placement = "outside",
+      strip.background = element_blank(),
+      strip.text.x = element_text(face = "bold"),
+      strip.text.y = element_text(face = "bold", angle = 0)
+    ) + 
+    labs(y="Proportion", x="Item-level response") +
+    scale_y_continuous(limits=c(0, 0.8))
+p
+# save_versioned_plot(p, "frequencies")
+```
+
+# EFA
 
 ```{r}
 get_fa_model_loadings <- function(data, scale, model_label) {
@@ -396,7 +530,7 @@ get_fa_model_loadings <- function(data, scale, model_label) {
                 names_sep = "",
                 values_from = "response") %>%
     select(-uid) %>% #for the cor_matrix
-    select(-items_no_variance)
+    select(-all_of(items_no_variance))
   
   cor_matrix <- cor(data, use = "pairwise.complete.obs")
 
@@ -442,23 +576,26 @@ efa_loadings_bfi <- bind_rows(bbc_loadings,
 
 ### Figure EFA loadings
 
-```{r fig.width=15, fig.height=6}
-efa_loadings_bfi %>%
+```{r fig.width=12, fig.height=6}
+p <- efa_loadings_bfi %>%
   mutate(loading = abs(loading),
          item = factor(item, levels=rev(unique(efa_loadings_bfi$item)))) %>%
   ggplot(aes(x=factor, y=item, fill=loading)) +
       geom_tile() +
-      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nloading") +
       facet_wrap(~model, nrow=1) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-      labs(x = "Principal Component", y = "Variable")
+      labs(x = "Principal component", y = "Item index")
+
+p
+# save_versioned_plot(p, "efa_loadings_bfi", width=12, height=6, bg="white")
 ```
 
 ### Table EFA loadings
 
 ```{r}
-efa_loadings %>%
+efa_loadings_bfi %>%
   mutate(dimension = str_sub(item, 1, 1),
          item_index = as.double(str_sub(item, 2, -1))) %>%
   arrange(dimension, item_index, model, factor) %>%
@@ -486,17 +623,20 @@ efa_loadings_bpaq <- bind_rows(get_fa_model_loadings(generic_gpt35_df, "BPAQ", "
 
 #### Figure EFA loadings
 
-```{r fig.width=15, fig.height=6}
-efa_loadings_bpaq %>%
+```{r fig.width=12, fig.height=6}
+p <- efa_loadings_bpaq %>%
   mutate(loading = abs(loading)) %>%
   # reordering is based on the item_index essentially
   ggplot(aes(x=factor, y=reorder(item, as.integer(str_sub(item, 2, -1)), decreasing=T), fill=loading)) +
       geom_tile() +
-      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nloading") +
       facet_wrap(~model, nrow=1) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-      labs(x = "Principal Component", y = "Variable")
+      labs(x = "Principal component", y = "Item index")
+
+p
+# save_versioned_plot(p, "efa_loadings_bpaq", width=12, height=6, bg="white")
 ```
 
 ### SSCS
@@ -513,17 +653,20 @@ efa_loadings_sscs <- bind_rows(get_fa_model_loadings(generic_gpt35_df, "SSCS", "
 
 #### Figure EFA loadings
 
-```{r fig.width=15, fig.height=6}
-efa_loadings_sscs %>%
+```{r fig.width=12, fig.height=6}
+p <- efa_loadings_sscs %>%
   mutate(loading = abs(loading),
          item = factor(item, levels=rev(unique(efa_loadings_sscs$item)))) %>%
   ggplot(aes(x=factor, y=item, fill=loading)) +
       geom_tile() +
-      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nloading") +
       facet_wrap(~model, nrow=1) +
       theme_minimal() +
-      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-      labs(x = "Principal Component", y = "Variable")
+      # theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      labs(x = "Principal component", y = "Item index")
+
+p
+# save_versioned_plot(p, "efa_loadings_sscs", width=12, height=6, bg="white")
 ```
 
 ### PANAS
@@ -540,28 +683,545 @@ efa_loadings_panas <- bind_rows(get_fa_model_loadings(generic_gpt35_df, "PANAS",
 
 #### Figure EFA loadings
 
-```{r fig.width=15, fig.height=6}
-efa_loadings_panas %>%
+```{r fig.width=12, fig.height=6}
+p <- efa_loadings_panas %>%
   mutate(loading = abs(loading),
          item = factor(item, levels=rev(unique(efa_loadings_panas$item)))) %>%
   ggplot(aes(x=factor, y=item, fill=loading)) +
       geom_tile() +
-      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nLoading") +
+      scale_fill_gradient2(low="white", mid="darkgrey", high="black", midpoint=0.5, limit=c(0,1), space="Lab", name="Factor\nloading") +
       facet_wrap(~model, nrow=1) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-      labs(x = "Principal Component", y = "Variable")
+      labs(x = "Principal component", y = "Item index")
+
+p
+# save_versioned_plot(p, "efa_loadings_panas", width=12, height=6, bg="white")
 ```
 
+# CFA
+
+```{r}
+# Function to remove specific variables from a lavaan-like cfa_spec
+# Courtesy of ChatGPT
+remove_vars_from_cfa <- function(cfa_spec, vars_to_remove) {
+  lines <- unlist(strsplit(cfa_spec, "\n"))
+  updated_lines <- sapply(lines, function(line) {
+    for (var in vars_to_remove) {
+      line <- gsub(paste0(" \\+ ", var), "", line)
+      line <- gsub(paste0(var, " \\+ "), "", line)
+    }
+    return(line)
+  })
+  updated_cfa_spec <- paste(updated_lines, collapse = "\n")
+  return(updated_cfa_spec)
+}
+
+get_cfa_fit <- function(scale_label, cfa_model, data, items_no_variance=c()) {
+  if (length(items_no_variance)>0) {
+    cfa_model <- remove_vars_from_cfa(cfa_model, items_no_variance)
+  }
+  
+  data <- data %>%
+    filter(scale==scale_label) %>%
+    pivot_wider(id_cols="uid",
+                names_from=c("dimension", "item_index"),
+                names_sep="",
+                values_from="response") %>%
+    select(-all_of(items_no_variance))
+  
+  fit <- cfa(cfa_model, data=data, std.lv=T, estimator="MLM")
+  
+  return(fit)
+}
+
+get_loadings_from_cfa_fit <- function(fit, model_label) {
+  parameterEstimates(fit) %>%
+    filter(op=="=~") %>%
+    select(lhs, rhs, est) %>%
+    rename('latent'=lhs, 'item'=rhs) %>%
+    mutate(model=model_label) %>%
+    as_tibble()
+}
+
+get_covariances_from_model_fit <- function(fit, model_label) {
+  latent_variables <- parameterEstimates(fit) %>%
+    filter(lhs==rhs, est==1) %>%
+    pull(lhs)
+  
+  parameterEstimates(fit) %>%
+    filter(op=="~~", est < 1, lhs %in% latent_variables) %>%
+    select(lhs, rhs, est) %>%
+    mutate(model=model_label) %>%
+    as_tibble()
+}
+
+get_fit_indices <- function(fit, model_label) {
+  measures <- fitMeasures(fit, fit.measures = c("GFI", "IFI", "RMSEA"))
+  tibble(model = model_label,
+         gfi = measures["gfi"],
+         ifi = measures["ifi"],
+         rmsea = measures["rmsea"])
+}
+```
+
+## BFI
+
+```{r}
+cfa_model_bfi <- '
+  O =~ O5 + O10 + O15 + O20 + O25 + O30 + O35 + O40 + O41 + O44
+  C =~ C3 + C8 + C13 + C18 + C23 + C28 + C33 + C38 + C43
+  E =~ E1 + E6 +E11 + E16 + E21 + E26 + E31 + E36
+  A =~ A2 + A7 + A12 + A17 + A22 + A27 + A32 + A37 + A42
+  N =~ N4 + N9 + N14 + N19 + N24 + N29 + N34 + N39
+'
+```
+
+```{r}
+if (!dir.exists(file.path("data", "bbc_data"))) {
+  load(file.path("data", "bbc_data_for_sharing", "cfa_fit_bfi_bbc.Rdata"))
+} else {
+  bbc_df <- process_data(file.path("data", "bbc_data", "bbc_df.csv"))
+  cfa_fit_bfi_bbc <- get_cfa_fit("BFI", cfa_model_bfi, bbc_df)
+  save(cfa_fit_bfi_bbc, file=file.path("data", "bbc_data_for_sharing", "cfa_fit_bfi_bbc.Rdata"))
+}
+
+cfa_fit_bfi_generic_gpt35 <- get_cfa_fit("BFI", cfa_model_bfi, generic_gpt35_df)
+cfa_fit_bfi_generic_gpt4 <- get_cfa_fit("BFI", cfa_model_bfi, generic_gpt4_df)
+cfa_fit_bfi_silicon_gpt35 <- get_cfa_fit("BFI", cfa_model_bfi, silicon_gpt35_df)
+# below one - bfi silicon gpt4 - is not positive definite so is not ran
+# cfa_fit_bfi_silicon_gpt4 <- get_cfa_fit("BFI", cfa_model_bfi, silicon_gpt4_df)
+```
+
+```{r}
+data <- get_loadings_from_cfa_fit(cfa_fit_bfi_bbc, "bbc") %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_bfi_generic_gpt35, "generic_gpt35")) %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_bfi_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_bfi_silicon_gpt35, "silicon_gpt35")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         item = factor(item, levels=rev(unique(cur_data()$item))),
+         latent = case_when(
+           latent=="A" ~ "Agreeableness",
+           latent=="O" ~ "Openness",
+           latent=="N" ~ "Neuroticism",
+           latent=="C" ~ "Conscientiousness",
+           latent=="E" ~ "Extraversion"
+         ),
+         latent = factor(latent, 
+                         levels=c("Openness", "Conscientiousness",
+                                  "Extraversion", "Agreeableness", "Neuroticism")))
+```
+
+```{r fig.width=12, fig.height=9}
+p1 <- data %>%
+  ggplot(aes(x=latent, y=item, fill=abs(est))) +
+    geom_tile() +
+    geom_text(aes(label=format_apa(est),
+                  color=if_else(abs(est)>.75, "white", "black")),
+              size=3,
+              position=position_identity()) +
+    scale_color_identity() + # necessary for the geom_text color to work
+    scale_fill_gradient2(low="white", mid="darkgrey", high="black",
+                         midpoint=0.5, limit=c(0,1), space="Lab",
+                         name="Standardized\nloading") +
+    facet_wrap(~model, nrow=1) +
+    theme_minimal() +
+    labs(x = "Latent factor", y = "Item") +
+    theme(axis.text.x = element_text(angle=45, hjust=1))
+
+p1
+```
+
+```{r}
+data <- get_covariances_from_model_fit(cfa_fit_bfi_bbc, "bbc") %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_bfi_generic_gpt35, "generic_gpt35")) %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_bfi_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_bfi_silicon_gpt35, "silicon_gpt35")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         lhs = case_when(
+           lhs=="A" ~ "Agreeableness",
+           lhs=="O" ~ "Openness",
+           lhs=="N" ~ "Neuroticism",
+           lhs=="C" ~ "Conscientiousness",
+           lhs=="E" ~ "Extraversion"
+         ),
+         lhs = factor(lhs, 
+                         levels=c("Openness", "Conscientiousness",
+                                  "Extraversion", "Agreeableness", "Neuroticism")),
+         rhs = case_when(
+           rhs=="A" ~ "Agreeableness",
+           rhs=="O" ~ "Openness",
+           rhs=="N" ~ "Neuroticism",
+           rhs=="C" ~ "Conscientiousness",
+           rhs=="E" ~ "Extraversion"
+         ),
+         rhs = factor(rhs, 
+                         levels=c("Openness", "Conscientiousness",
+                                  "Extraversion", "Agreeableness", "Neuroticism")))
+```
+      
+```{r fig.width=12, fig.height=3}
+p2 <- data %>%
+  ggplot(aes(x=lhs, y=rhs, fill=est)) +
+  geom_tile() +
+  geom_text(aes(label = if_else(is.na(est), NA, format_apa(est))), color = "black", size = 3) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                           midpoint = 0, limit = c(-1,1), space = "Lab", 
+                           name="Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+            # legend.position="top",
+            # legend.justification="center",
+            # legend.direction="vertical",
+            # legend.text=element_text(size=12)
+        ) +
+  facet_wrap(~model, nrow=1) +
+  labs(x = "", y = "")
+
+p2
+```
+
+```{r fig.width=12, fig.height=12}
+p <- ggarrange(p1, p2,
+          labels=c("A", "B"),
+          heights=c(9,3),
+          ncol=1)
+
+p
+# save_versioned_plot(p, "cfa_results_bfi", width=12, height=12, bg="white")
+```
+
+```{r}
+get_fit_indices(cfa_fit_bfi_bbc, "bbc") %>%
+  bind_rows(get_fit_indices(cfa_fit_bfi_generic_gpt35, "generic_gpt35")) %>%
+  bind_rows(get_fit_indices(cfa_fit_bfi_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_fit_indices(cfa_fit_bfi_silicon_gpt35, "silicon_gpt35")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         across(is.numeric, ~format_apa(.)))
+```
+
+## All other questionnaires
+
+### BPAQ
+
+```{r}
+cfa_model_bpaq <- '
+  P =~ P1 + P2 + P3 + P4 + P5 + P6 + P7 + P8 + P9
+  V =~ V10 + V11 + V12 + V13 + V14
+  A =~ A15 + A16 + A17 + A18 + A19 + A20 + A21
+  H =~ H22 + H23 + H24 + H25 + H26 + H27 + H28 + H29
+'
+```
+
+```{r}
+cfa_fit_bpaq_generic_gpt35 <- get_cfa_fit("BPAQ", cfa_model_bpaq, generic_gpt35_df)
+cfa_fit_bpaq_generic_gpt4 <- get_cfa_fit("BPAQ", cfa_model_bpaq, generic_gpt4_df)
+cfa_fit_bpaq_silicon_gpt35 <- get_cfa_fit("BPAQ", cfa_model_bpaq, silicon_gpt35_df, c("A18", "V10"))
+# below one - bpaq silicon gpt4 - is not positive definite so is not ran
+# cfa_fit_bpaq_silicon_gpt4 <- get_cfa_fit("BPAQ", cfa_model_bpaq, silicon_gpt4_df, c("P8"))
+```
+
+```{r}
+data <- get_loadings_from_cfa_fit(cfa_fit_bpaq_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_bpaq_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_bpaq_silicon_gpt35, "silicon_gpt35")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         item = factor(item, levels=rev(unique(cur_data()$item))),
+         latent = case_when(
+           latent=="A" ~ "Anger",
+           latent=="P" ~ "Physical",
+           latent=="V" ~ "Verbal",
+           latent=="H" ~ "Hostility",
+         ),
+         latent = factor(latent, levels=c("Physical", "Verbal", "Anger", "Hostility")))
+```
+
+```{r fig.width=12, fig.height=9}
+p1 <- data %>%
+  ggplot(aes(x=latent, y=item, fill=abs(est))) +
+    geom_tile() +
+    geom_text(aes(label=format_apa(est),
+                  color=if_else(abs(est)>.75, "white", "black")),
+              position=position_identity()) +
+    scale_fill_gradient2(low="white", mid="darkgrey", high="black",
+                         midpoint=0.5, limit=c(0,1), space="Lab",
+                         name="Standardized\nloading") +
+    scale_color_identity() + # necessary for the geom_text color to work
+    facet_wrap(~model, nrow=1) +
+    theme_minimal() +
+    labs(x = "Latent factor", y = "Item")
+
+p1
+```
+
+```{r}
+data <- get_covariances_from_model_fit(cfa_fit_bpaq_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_bpaq_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_bpaq_silicon_gpt35, "silicon_gpt35")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         lhs = case_when(
+           lhs=="A" ~ "Anger",
+           lhs=="P" ~ "Physical",
+           lhs=="V" ~ "Verbal",
+           lhs=="H" ~ "Hostility",
+         ),
+         lhs = factor(lhs, levels=c("Physical", "Verbal", "Anger", "Hostility")),
+         rhs = case_when(
+           rhs=="A" ~ "Anger",
+           rhs=="P" ~ "Physical",
+           rhs=="V" ~ "Verbal",
+           rhs=="H" ~ "Hostility",
+         ),
+         rhs = factor(rhs, levels=c("Physical", "Verbal", "Anger", "Hostility")))
+```
+      
+```{r fig.width=12, fig.height=3}
+p2 <- data %>%
+  ggplot(aes(x=lhs, y=rhs, fill=est)) +
+  geom_tile() +
+  geom_text(aes(label = if_else(is.na(est), NA, format_apa(est))), color = "black", size = 3) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                           midpoint = 0, limit = c(-1,1), space = "Lab", 
+                           name="Correlation") +
+  theme_minimal() +
+  facet_wrap(~model, nrow=1) +
+  labs(x = "", y = "")
+
+p2
+```
+
+```{r fig.width=12, fig.height=12}
+p <- ggarrange(p1, p2,
+          labels=c("A", "B"),
+          heights=c(9,3),
+          ncol=1)
+
+p
+# save_versioned_plot(p, "cfa_results_bpaq", width=12, height=12, bg="white")
+```
+```{r}
+get_fit_indices(cfa_fit_bpaq_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_fit_indices(cfa_fit_bpaq_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_fit_indices(cfa_fit_bpaq_silicon_gpt35, "silicon_gpt35")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         across(is.numeric, ~format_apa(.)))
+```
+
+### SSCS
+
+```{r}
+cfa_model_sscs <- '
+  P =~ P1 + P2 + P7 + P10 + P11
+  S =~ S3 + S4 + S5 + S6 +S8 + S9
+'
+```
+
+```{r}
+cfa_fit_sscs_generic_gpt35 <- get_cfa_fit("SSCS", cfa_model_sscs, generic_gpt35_df)
+cfa_fit_sscs_generic_gpt4 <- get_cfa_fit("SSCS", cfa_model_sscs, generic_gpt4_df)
+cfa_fit_sscs_silicon_gpt35 <- get_cfa_fit("SSCS", cfa_model_sscs, silicon_gpt35_df, c("P10"))
+cfa_fit_sscs_silicon_gpt4 <- get_cfa_fit("SSCS", cfa_model_sscs, silicon_gpt4_df)
+```
+
+```{r}
+data <- get_loadings_from_cfa_fit(cfa_fit_sscs_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_sscs_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_sscs_silicon_gpt35, "silicon_gpt35")) %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_sscs_silicon_gpt4, "silicon_gpt4")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         item = factor(item, levels=rev(unique(cur_data()$item))),
+         latent = case_when(
+           latent=="P" ~ "Personal Identity",
+           latent=="S" ~ "Self-efficacy",
+         ),
+         latent = factor(latent, levels=c("Personal Identity", "Self-efficacy")))
+```
+
+```{r fig.width=12, fig.height=9}
+p1 <- data %>%
+  ggplot(aes(x=latent, y=item, fill=abs(est))) +
+    geom_tile() +
+    geom_text(aes(label=format_apa(est),
+                  color=if_else(abs(est)>.75, "white", "black")),
+              position=position_identity()) +
+    scale_fill_gradient2(low="white", mid="darkgrey", high="black",
+                         midpoint=0.5, limit=c(0,1), space="Lab",
+                         name="Standardized\nloading") +
+    scale_color_identity() + # necessary for the geom_text color to work
+    facet_wrap(~model, nrow=1) +
+    theme_minimal() +
+    labs(x = "Latent factor", y = "Item")
+
+p1
+```
+
+```{r}
+data <- get_covariances_from_model_fit(cfa_fit_sscs_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_sscs_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_sscs_silicon_gpt35, "silicon_gpt35")) %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_sscs_silicon_gpt4, "silicon_gpt4")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         lhs = case_when(
+           lhs=="P" ~ "Personal Identity",
+           lhs=="S" ~ "Self-efficacy",
+         ),
+         lhs = factor(lhs, levels=c("Personal Identity", "Self-efficacy")),
+         rhs = case_when(
+           rhs=="P" ~ "Personal Identity",
+           rhs=="S" ~ "Self-efficacy",
+         ),
+         rhs = factor(rhs, levels=c("Personal Identity", "Self-efficacy")))
+```
+      
+```{r fig.width=12, fig.height=3}
+p2 <- data %>%
+  ggplot(aes(x=lhs, y=rhs, fill=est)) +
+  geom_tile() +
+  geom_text(aes(label = if_else(is.na(est), NA, format_apa(est))), color = "black", size = 3) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                           midpoint = 0, limit = c(-1,1), space = "Lab", 
+                           name="Correlation") +
+  theme_minimal() +
+  facet_wrap(~model, nrow=1) +
+  labs(x = "", y = "")
+
+p2
+```
+
+```{r fig.width=12, fig.height=12}
+p <- ggarrange(p1, p2,
+          labels=c("A", "B"),
+          heights=c(9,3),
+          ncol=1)
+
+p
+# save_versioned_plot(p, "cfa_results_sscs", width=12, height=12, bg="white")
+```
+```{r}
+get_fit_indices(cfa_fit_sscs_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_fit_indices(cfa_fit_sscs_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_fit_indices(cfa_fit_sscs_silicon_gpt35, "silicon_gpt35")) %>%
+  bind_rows(get_fit_indices(cfa_fit_sscs_silicon_gpt4, "silicon_gpt4")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         across(is.numeric, ~format_apa(.)))
+```
+
+### PANAS
+
+```{r}
+cfa_model_panas <- '
+  P =~ P1 + P3 + P5 + P9 + P10 + P12 + P14 + P16 + P17 + P19
+  N =~ N2 + N4 + N6 + N7 + N8 + N11 + N13 + N15 + N18 + N20
+'
+```
+
+```{r}
+cfa_fit_panas_generic_gpt35 <- get_cfa_fit("PANAS", cfa_model_panas, generic_gpt35_df)
+cfa_fit_panas_generic_gpt4 <- get_cfa_fit("PANAS", cfa_model_panas, generic_gpt4_df)
+cfa_fit_panas_silicon_gpt35 <- get_cfa_fit("PANAS", cfa_model_panas, silicon_gpt35_df)
+cfa_fit_panas_silicon_gpt4 <- get_cfa_fit("PANAS", cfa_model_panas, silicon_gpt4_df)
+```
+
+```{r}
+data <- get_loadings_from_cfa_fit(cfa_fit_panas_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_panas_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_panas_silicon_gpt35, "silicon_gpt35")) %>%
+  bind_rows(get_loadings_from_cfa_fit(cfa_fit_panas_silicon_gpt4, "silicon_gpt4")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         item = factor(item, levels=rev(unique(cur_data()$item))),
+         latent = case_when(
+           latent=="P" ~ "Positive",
+           latent=="N" ~ "Negative",
+         ),
+         latent = factor(latent, levels=c("Positive", "Negative")))
+```
+
+```{r fig.width=12, fig.height=9}
+p1 <- data %>%
+  ggplot(aes(x=latent, y=item, fill=abs(est))) +
+    geom_tile() +
+    geom_text(aes(label=format_apa(est),
+                  color=if_else(abs(est)>.75, "white", "black")),
+              position=position_identity()) +
+    scale_fill_gradient2(low="white", mid="darkgrey", high="black",
+                         midpoint=0.5, limit=c(0,1), space="Lab",
+                         name="Standardized\nloading") +
+    scale_color_identity() + # necessary for the geom_text color to work
+    facet_wrap(~model, nrow=1) +
+    theme_minimal() +
+    labs(x = "Latent factor", y = "Item")
+```
+
+```{r}
+data <- get_covariances_from_model_fit(cfa_fit_panas_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_panas_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_panas_silicon_gpt35, "silicon_gpt35")) %>%
+  bind_rows(get_covariances_from_model_fit(cfa_fit_panas_silicon_gpt4, "silicon_gpt4")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         lhs = case_when(
+           lhs=="P" ~ "Positive",
+           lhs=="N" ~ "Negative",
+         ),
+         lhs = factor(lhs, levels=c("Positive", "Negative")),
+         rhs = case_when(
+           rhs=="P" ~ "Positive",
+           rhs=="N" ~ "Negative",
+         ),
+         rhs = factor(rhs, levels=c("Positive", "Negative")))
+```
+      
+```{r fig.width=12, fig.height=3}
+p2 <- data %>%
+  ggplot(aes(x=lhs, y=rhs, fill=est)) +
+  geom_tile() +
+  geom_text(aes(label = if_else(is.na(est), NA, format_apa(est))), color = "black", size = 3) +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                           midpoint = 0, limit = c(-1,1), space = "Lab", 
+                           name="Correlation") +
+  theme_minimal() +
+  facet_wrap(~model, nrow=1) +
+  labs(x = "", y = "")
+```
+
+```{r fig.width=12, fig.height=12}
+p <- ggarrange(p1, p2,
+          labels=c("A", "B"),
+          heights=c(9,3),
+          ncol=1)
+
+p
+# save_versioned_plot(p, "cfa_results_panas", width=12, height=12, bg="white")
+```
+
+```{r}
+get_fit_indices(cfa_fit_panas_generic_gpt35, "generic_gpt35") %>%
+  bind_rows(get_fit_indices(cfa_fit_panas_generic_gpt4, "generic_gpt4")) %>%
+  bind_rows(get_fit_indices(cfa_fit_panas_silicon_gpt35, "silicon_gpt35")) %>%
+  bind_rows(get_fit_indices(cfa_fit_panas_silicon_gpt4, "silicon_gpt4")) %>%
+  mutate(model = recode(model, !!!model_labels),
+         model = factor(model),
+         across(is.numeric, ~format_apa(.)))
+```
 
 # Figure: Trait bias
 
 ```{r}
-data <- read_csv(file.path("data", "data_for_R", "bias_df.csv")) %>%
+data <- read_csv(file.path("data", "data_for_R", "bias_df.csv"), show_col_types=F) %>%
   mutate(model = recode(model, !!!model_labels2))
 ```
 
-```{r fig.width=12, fig.height=6}
+```{r fig.width=12, fig.height=6, warning=FALSE}
 data_summary_stats_labels <- data %>%
   group_by(model, trait) %>%
   summarise(label = paste0('<i>M</i>=', format_apa(mean(bias)), ' (<i>SD</i>=', format_apa(sd(bias)), ')'))
@@ -576,7 +1236,7 @@ data_p_val_labels <- data %>%
   )
 
 
-ggplot(data, aes(x=model, y=bias)) +
+p <- ggplot(data, aes(x=model, y=bias)) +
     geom_violin(width=0.6) +
     geom_boxplot(width=0.05, alpha=0.2) +
     ggtext::geom_richtext(data=data_summary_stats_labels, 
@@ -587,16 +1247,18 @@ ggplot(data, aes(x=model, y=bias)) +
                             mapping=aes(y=3, x=1.5, label=label, group=NULL, fill=NULL), 
                             size=3,
                             show.legend=F) +
-    labs(x="Model", y="Bias") +
+    labs(x="Model", y="Trait bias") +
     facet_wrap(~trait) +
     scale_y_continuous(limits=c(0, 3.7))
+
+p
+# save_versioned_plot(p, "trait_bias", width=12, height=6)
 ```
 
 # Figure: Bias correlations
 
 ```{r}
-data <- read_csv(file.path("data", "data_for_R", "bias_corrs_df.csv"))
-data
+data <- read_csv(file.path("data", "data_for_R", "bias_corrs_df.csv"), show_col_types=F)
 ```
 
 ```{r}
@@ -615,7 +1277,6 @@ labels_mapper_p3 <- c(
 )
 ```
 
-
 ```{r fig.width=12, fig.height=9}
 p1 <- data %>%
   filter(str_detect(var, "^BFI_")) %>%
@@ -623,7 +1284,7 @@ p1 <- data %>%
   ggplot(aes(x = var, y = r, fill=model)) +
       geom_col(position = position_dodge()) +
       geom_text(aes(label = format_apa(r),
-                    vjust = if_else(r>0, -0.3, 1)), 
+                    vjust = if_else(r>0, -0.3, 1.1)), 
                   position = position_dodge(width = 0.9), 
                   color = "black", 
                   size = 3.5, 
@@ -631,7 +1292,6 @@ p1 <- data %>%
       labs(x="", y="Correlation coefficient", fill="") +
       scale_fill_grey(labels=c("GPT-3.5", "GPT-4")) +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
-p1
 ```
 
 ```{r fig.width=12, fig.height=9}
@@ -647,7 +1307,7 @@ p2 <- data %>%
   ggplot(aes(x = var, y = r, fill=model)) +
       geom_col(position = position_dodge()) +
       geom_text(aes(label = format_apa(r),
-                    vjust = if_else(r>0, -0.3, 1)), 
+                    vjust = if_else(r>0, -0.3, 1.1)), 
                   position = position_dodge(width = 0.9), 
                   color = "black", 
                   size = 3.5, 
@@ -664,79 +1324,40 @@ p3 <- data %>%
   ggplot(aes(x = var, y = r, fill=model)) +
       geom_col(position = position_dodge()) +
       geom_text(aes(label = format_apa(r),
-                    vjust = if_else(r>0, -0.3, 1)), 
+                    vjust = if_else(r>0, -0.3, 1.1)), 
                   position = position_dodge(width = 0.9), 
                   color = "black", 
                   size = 3.5, 
                   check_overlap = TRUE) +
       labs(x="", y="", fill="") +
-      # guides(fill="none") +
       scale_fill_grey(labels=c("GPT-3.5", "GPT-4")) +
       scale_y_continuous(limits=c(-0.05, 0.11)) +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-p3
 ```
 
 ```{r fig.width=12, fig.height=9}
 p2_p3 <- ggarrange(p2, p3, nrow=2, ncol=1, common.legend = T, legend="none")
-p2_p3
 ```
 
-
 ```{r fig.width=12, fig.height=9}
-ggarrange(p1, p2_p3,
-          # labels = c("A: Study 1", "B: Study 2", "C: Study 5"),
+p <- ggarrange(p1, p2_p3,
           font.label=list(size=20, color="black", face="bold"),
           nrow=1, ncol=2,
           common.legend=T,
           legend="bottom")
-```
 
-```{r fig.width=12, fig.height=9}
-ggplot(data, aes(x = var, y = r, fill=model)) +
-    geom_col(position = position_dodge()) +
-    geom_text(aes(label = format_apa(r)), 
-                position = position_dodge(width = 0.9), 
-                vjust = -0.3, 
-                color = "black", 
-                size = 3.5, 
-                check_overlap = TRUE) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p
+# save_versioned_plot(p, "trait_bias_correlations", bg="white")
 ```
-
-# Figure: Supplementary - Analysis of the first token of the responses
 
 ```{r}
-data <- read_csv(file.path("data", "data_for_R", "combined_first_token_digit_item_frequencies.csv")) %>%
-  mutate(model = gsub("_relative_frequency", "", model),
-         model = recode(model, !!!model_labels),
-         model = factor(model),
-         first_token_is_digit = if_else(first_token_is_digit, "first token is digit", "first token is NOT digit")
-         )
-data
+knitr::knit_exit()
 ```
 
-```{r fig.width=12}
-p <- ggplot(data, aes(x = response_reversed, y = relative_frequency)) +
-    geom_col(position = position_dodge()) +
-    geom_text(aes(label = format_apa(relative_frequency)), 
-                position = position_dodge(width = 0.9), 
-                vjust = -0.3, 
-                color = "black", 
-                size = 3.5, 
-                check_overlap = TRUE)
+# Exit
 
-p + facet_grid(rows = vars(model), cols = vars(first_token_is_digit), scales = "free_x") +
-  theme(
-    strip.placement = "outside",
-    strip.background = element_blank(),
-    strip.text.x = element_text(face = "bold"),
-    strip.text.y = element_text(face = "bold", angle = 0)
-  ) + 
-  labs(y="Frequency", x="Item-level response") +
-  scale_y_continuous(limits=c(0, 0.8))
-```
+
+
 
 
 

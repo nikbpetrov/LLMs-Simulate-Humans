@@ -10,3 +10,4 @@ data/raw_data/silicon_gpt35_requests.jsonl
 data/raw_data/silicon_gpt35_requests_results.jsonl
 data/raw_data/silicon_gpt4_requests.jsonl
 data/raw_data/silicon_gpt4_requests_results.jsonl
+.Rproj.user
